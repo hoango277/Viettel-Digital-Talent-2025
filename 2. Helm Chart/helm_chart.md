@@ -197,4 +197,194 @@ kubectl exec --namespace jenkins -it svc/jenkins -c jenkins -- /bin/cat /run/sec
 - Manifest của ArgoCD Application
 - Ảnh chụp giao diện màn hình hệ thống ArgoCD trên trình duyệt
 - Ảnh chụp giao diện màn hình trình duyệt khi truy cập vào Web URL, API URL
+### Các bước triển khai
+**Triển khai database lên cụm k8s**
+Trước tiên ta cần lặp lại các bước export NFS-Storage ở trên Server Storage để tạo PV cho MySQL
+```
+sudo mkdir /mysql
+sudo chown -R nobody:nogroup /mysql
+sudo chmod -R 777 /mysql
+sudo vi /etc/exports
+/mysql  *(rw,sync,no_subtree_check,no_root_squash)
+sudo exportfs -rav
+```
+Trên Node Master, tạo file manifest mysql.yaml
+```
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-nfs-pv
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-storage
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.122.87
+    path: /mysql
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-nfs-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 8Gi
+  storageClassName: nfs-storage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            value: "hoa0976271476"
+        ports:
+          - name: mysql
+            containerPort: 3306
+        volumeMounts:
+          - name: mysql-storage
+            mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-nfs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+```
+Sau đó import database.sql vào trong container mysql
+```
+kubectl exec -i mysql-7cff8f66f9-bhsrs -- \
+  mysql -u root -phoa0976271476 < ./database.sql
+```
+
+**Triển khai api và webservice**
+### Frontend
+Helm Chart nằm trong thư mục Helm của repo
+[Repo Frontend](https://github.com/hoango277/vdt-frontend)
+[Repo Config Frontend](https://github.com/hoango277/vdt-config-frontend)
+### API
+Helm Chart nằm trong thư mục Helm của repo
+[Repo API](https://github.com/hoango277/vdt-api)
+[Repo Config API](https://github.com/hoango277/vdt-config-api)
+
+### Triển khai lên k8s 
+File Manifest triển khai Frontend
+```
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vdt-frontend
+  namespace: argocd
+spec:
+  project: default
+  sources:
+  - repoURL: https://github.com/hoango277/vdt-frontend
+    path: helm
+    targetRevision: HEAD
+    helm:
+      valueFiles:
+        - values.yaml           
+        - $values/values.yaml   
+  - repoURL: https://github.com/hoango277/vdt-config-frontend
+    targetRevision: HEAD
+    ref: values
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+```
+File manifest triển khai API
+```
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vdt-api
+  namespace: argocd
+spec:
+  project: default
+  sources:
+  - repoURL: https://github.com/hoango277/vdt-api
+    path: helm
+    targetRevision: HEAD
+    helm:
+      valueFiles:
+        - values.yaml           
+        - $values/values.yaml   
+  - repoURL: https://github.com/hoango277/vdt-config-api
+    targetRevision: HEAD
+    ref: values
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+```
+Sử dụng lệnh
+```
+kubectl apply -f frontend_manifest_helm.yaml
+```
+
+#### Kết quả
+Hình ảnh trên argoCD sau khi triển khai
+![Ảnh](images/argoCD_app_UI.png)
+##### Web Service
+![Anh](images/frontend_argo.png)
+##### API Service
+![Anh](images/api_argo.png)
+Giao diện ứng dụng trên trình duyệt
+##### Web UI
+![](images/web_ui.png)
+##### API DOCS UI
+![](images/api_ui.png)
+
+
+
+
+
+
 

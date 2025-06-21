@@ -33,7 +33,7 @@ Setup secret để kaniko có thể push được images lên dockerhub
 kubectl create secret docker-registry dockerhub-secret \
   --docker-server=https://index.docker.io/v1/ \
   --docker-username=xuanhoa2772004 \
-  --docker-password=secret\
+  --secret\
   --docker-email=xuanhoa2772004 \
   -n jenkins
 ```
